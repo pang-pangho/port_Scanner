@@ -1,124 +1,114 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
+from flask import Flask, request, jsonify, render_template_string
+import sqlite3
 from datetime import datetime
-from PortChecker import scan_ports
-import threading
 
 app = Flask(__name__)
-CORS(app)
+DB_PATH = "asm.db"
 
-# 임시 메모리 저장소 (실제 서비스에서는 DB 사용)
-scan_results_db = {}
-assets_db = []
+def init_db():
+    """DB 초기화: scan_results 테이블 생성"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS scan_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ip TEXT,
+            port INTEGER,
+            status TEXT,
+            service TEXT,
+            version TEXT,
+            timestamp TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
 
-@app.route("/scan", methods=["POST"])
-def scan():
+@app.route("/report", methods=["POST"])
+def receive_report():
     """
-    프론트엔드에서 스캔 요청이 오면 비동기로 포트 스캔을 실행하고,
-    즉시 응답(202) 후 결과는 /scan-results/<ip>에서 조회
-    """
-    data = request.get_json()
-    ip = data.get("ip")
-    ports = data.get("ports", [22, 80, 443, 3306, 8080])
-    scan_type = data.get("scan_type", "quick")
-
-    # 스캔 비동기 실행
-    def do_scan(ip, ports):
-        results = scan_ports(ip, ports)
-        # 서비스/버전/취약점 예시
-        for r in results:
-            if r["port"] == 22:
-                r["service"] = "SSH"
-                r["version"] = "OpenSSH 8.2"
-                r["vulnerability"] = "medium"
-            elif r["port"] == 80:
-                r["service"] = "HTTP"
-                r["version"] = "Apache 2.4.41"
-                r["vulnerability"] = "low"
-            elif r["port"] == 443:
-                r["service"] = "HTTPS"
-                r["version"] = "Apache 2.4.41"
-                r["vulnerability"] = "low"
-            elif r["port"] == 3306:
-                r["service"] = "MySQL"
-                r["version"] = "8.0.25"
-                r["vulnerability"] = "high"
-            elif r["port"] == 8080:
-                r["service"] = "HTTP-Proxy"
-                r["version"] = "Jetty 9.4"
-                r["vulnerability"] = "medium"
-            else:
-                r["service"] = "unknown"
-                r["version"] = ""
-                r["vulnerability"] = "low"
-        scan_results_db[ip] = results
-        # 자산 정보도 갱신
-        asset = {
-            "id": len(assets_db) + 1,
-            "ip": ip,
-            "hostname": ip,
-            "os": "Unknown",
-            "status": "up",
-            "last_scanned": datetime.now().isoformat(),
-            "ports": [
-                {
-                    "port": r["port"],
-                    "protocol": "tcp",
-                    "state": r["status"],
-                    "service": r.get("service", ""),
-                    "product": r.get("service", ""),
-                    "version": r.get("version", ""),
-                }
-                for r in results if r["status"] == "open"
-            ]
-        }
-        # 중복 제거
-        assets_db[:] = [a for a in assets_db if a["ip"] != ip]
-        assets_db.append(asset)
-
-    threading.Thread(target=do_scan, args=(ip, ports)).start()
-    return jsonify({"message": "스캔 요청 접수"}), 202
-
-@app.route("/scan-results/<ip>")
-def get_scan_results(ip):
-    """스캔 결과 반환"""
-    results = scan_results_db.get(ip, [])
-    return jsonify(results)
-
-@app.route("/api/assets")
-def get_assets():
-    """자산 목록 반환"""
-    return jsonify(assets_db)
-
-@app.route("/attack/ssh", methods=["POST"])
-def attack_ssh():
-    """
-    SSH 브루트포스 공격 실행 (예시: 결과만 반환)
-    실제로는 ssh_bruteforce.py 연동 필요
+    클라이언트에서 POST로 받은 스캔 결과 JSON 배열을 DB에 저장
     """
     data = request.get_json()
-    # 실제로는 subprocess로 ssh_bruteforce.py 실행, 결과 파싱
-    # 여기선 예시로 성공 응답
-    return jsonify({
-        "success": True,
-        "credentials": {"username": "testuser", "password": "pass123"},
-        "message": "SSH 로그인 성공"
-    })
+    if not data:
+        return jsonify({"message": "빈 데이터"}), 400
 
-@app.route("/attack/web", methods=["POST"])
-def attack_web():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+
+    for item in data:
+        c.execute('''
+            INSERT INTO scan_results (ip, port, status, service, version, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (
+            item.get('ip'),
+            item.get('port'),
+            item.get('status'),
+            item.get('service', 'N/A'),
+            item.get('version', 'N/A'),
+            item.get('timestamp', datetime.now().isoformat())
+        ))
+
+    conn.commit()
+    conn.close()
+    return jsonify({"message": "결과 저장 완료"}), 200
+
+@app.route("/results")
+def show_results():
     """
-    웹 브루트포스 공격 실행 (예시: 결과만 반환)
-    실제로는 web_bruteforce.py 연동 필요
+    DB에서 최근 100건 스캔 결과를 조회하여
+    HTML 테이블로 예쁘게 보여줌
     """
-    data = request.get_json()
-    # 실제로는 subprocess로 web_bruteforce.py 실행, 결과 파싱
-    # 여기선 예시로 성공 응답
-    return jsonify({
-        "success": True,
-        "credentials": {"username": "admin", "password": "password"},
-        "message": "웹 로그인 성공"
-    })
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''
+        SELECT ip, port, status, service, version, timestamp
+        FROM scan_results
+        ORDER BY timestamp DESC
+        LIMIT 100
+    ''')
+    rows = c.fetchall()
+    conn.close()
+
+    html = '''
+    <html>
+    <head>
+      <title>포트 스캔 결과</title>
+      <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+        th { background-color: #f4f4f4; }
+        tr:nth-child(even) { background-color: #fafafa; }
+      </style>
+    </head>
+    <body>
+    <h1>포트 스캔 결과 (최신 100건)</h1>
+    <table>
+      <thead>
+        <tr>
+          <th>IP</th><th>Port</th><th>Status</th><th>Service</th><th>Version</th><th>Timestamp</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for row in rows %}
+        <tr>
+          <td>{{ row[0] }}</td>
+          <td>{{ row[1] }}</td>
+          <td>{{ row[2] }}</td>
+          <td>{{ row[3] }}</td>
+          <td>{{ row[4] }}</td>
+          <td>{{ row[5] }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </body>
+    </html>
+    '''
+
+    return render_template_string(html, rows=rows)
+
 
 if __name__ == "__main__":
+    init_db()
     app.run(debug=True, port=5001)
