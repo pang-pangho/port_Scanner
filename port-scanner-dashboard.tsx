@@ -253,6 +253,7 @@ export default function PortScannerDashboard() {
     }
   }
 
+  
   // 포트 범위 파싱
   const parsePortRange = (): number[] => {
     const s = parseInt(startPort, 10)
@@ -262,18 +263,14 @@ export default function PortScannerDashboard() {
   }
 
   // 취약도 색상 결정
-  const getVulnerabilityColor = (level: string) => {
-    switch (level?.toLowerCase()) {
-      case "critical":
-        return "bg-red-600"
-      case "high":
-        return "bg-red-500"
-      case "medium":
-        return "bg-yellow-500"
-      case "low":
-        return "bg-green-500"
-      default:
-        return "bg-gray-500"
+  const getVulnerabilityColor = (status: string, vulnerability: string) => {
+    if (status !== "open") return "bg-gray-500"; // 닫힘이면 회색(불빛 없음)
+    switch (vulnerability?.toLowerCase()) {
+      case "critical": return "bg-red-600";
+      case "high": return "bg-red-500";
+      case "medium": return "bg-yellow-500";
+      case "low": return "bg-green-500";
+      default: return "bg-gray-500";
     }
   }
 
@@ -570,8 +567,8 @@ export default function PortScannerDashboard() {
                                 {result.status === "open" ? "열림" : "닫힘"}
                               </Badge>
                               <div
-                                className={`w-3 h-3 rounded-full ${getVulnerabilityColor(result.vulnerability || "low")}`}
-                              />
+  className={`w-3 h-3 rounded-full ${getVulnerabilityColor(result.status, result.vulnerability || "low")}`}
+/>
                             </div>
                           </div>
                         ))}
