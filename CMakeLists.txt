@@ -1,28 +1,41 @@
-cmake_minimum_required(VERSION 3.16)
-project(MyApp)
-
-# CMP0167 정책 설정 (CMake 3.30+ 전용)
-if(POLICY CMP0167)
-  cmake_policy(SET CMP0167 NEW) # BoostConfig.cmake 사용
-endif()
+﻿cmake_minimum_required(VERSION 3.15) # 버전을 3.15로 올리는 것을 권장합니다.
+project(ASM_System CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# 외부 라이브러리 찾기 (필요시)
+# Find necessary packages (버전 정보는 vcpkg가 알아서 찾으므로 생략 가능)
+find_package(Boost REQUIRED COMPONENTS system process)
 find_package(yaml-cpp REQUIRED)
-find_package(spdlog REQUIRED)
+find_package(Threads REQUIRED)
 find_package(PugiXML REQUIRED)
-find_package(Boost CONFIG REQUIRED COMPONENTS process)
-# Crow는 헤더온리라면 include_directories만 추가
+find_package(spdlog REQUIRED)
+find_package(Crow REQUIRED)
+find_package(SQLite3 REQUIRED)
 
-# 실행 파일 생성 (소스 파일 경로 주의!)
-add_executable(port_scanner scanner/port_scanner.cpp)
+# Add executable
+add_executable(asm asm/ASM.cpp)
 
-# 라이브러리 링크
-target_link_libraries(port_scanner
-    yaml-cpp
-    spdlog::spdlog
-    pugixml
+# Link libraries
+target_link_libraries(asm
+    PRIVATE
+    # vcpkg가 제공하는 표준 타겟 이름만 명시합니다.
+    Threads::Threads
+    Boost::system
     Boost::process
+    yaml-cpp::yaml-cpp   
+    pugixml::pugixml     
+    spdlog::spdlog       
+    Crow::Crow 
+    SQLite::SQLite3      # <-- ${SQLITE3_LIBRARIES} 대신 이 타겟 이름을 사용합니다.
 )
+
+# --- 아래 'target_include_directories' 섹션은 vcpkg 사용 시 불필요하므로 모두 삭제합니다. ---
+# target_include_directories(asm
+#     PRIVATE
+#     ${Boost_INCLUDE_DIRS}
+#     ${YAML-CPP_INCLUDE_DIRS}
+#     ${PUGIXML_INCLUDE_DIR}
+#     ${SPDLOG_INCLUDE_DIRS}
+#     ${CROW_INCLUDE_DIRS}
+# )
