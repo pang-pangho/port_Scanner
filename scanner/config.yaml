@@ -1,0 +1,12 @@
+api:
+  port: 8080
+database:
+  path: asm.db
+scanner:
+  nmap:
+    path: nmap
+    #공격 최종 스캔 옵션
+    arguments: -sV -O --script "vuln,http-enum"
+targets:
+  # 이 부분은 파이썬 스크립트에서 제어하므로 비우기
+  initial: []

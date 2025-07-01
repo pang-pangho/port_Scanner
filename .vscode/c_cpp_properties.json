@@ -1,0 +1,32 @@
+{
+    "configurations": [
+        {
+            "name": "Mac",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__thread/support",
+                "/opt/homebrew/include",  // Homebrew 기본 경로
+                "/usr/local/include"      // Crow 등이 설치된 경로
+            ],
+            "defines": [],
+            "compilerPath": "/usr/bin/clang",
+            "cStandard": "c17",
+            "cppStandard": "c++17",  // ⚠️ C++17로 변경 권장
+            "intelliSenseMode": "macos-clang-arm64"
+        },
+        {
+            "name": "boost",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "/opt/homebrew/include",  // 추가
+                "/usr/local/include"      // 추가
+            ],
+            "defines": [],
+            "compilerPath": "/usr/bin/clang",
+            "cStandard": "c17",
+            "cppStandard": "c++17",  // ⚠️ C++17로 변경
+            "intelliSenseMode": "macos-clang-arm64"
+        }
+    ],
+    "version": 4
+}
