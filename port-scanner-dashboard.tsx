@@ -72,7 +72,6 @@ export default function PortScannerDashboard() {
   const [startPort, setStartPort] = useState("");
   const [endPort, setEndPort] = useState("")
   const [targetIp, setTargetIp] = useState("")
-  // const [portRange, setPortRange] = useState("1-100")
   const [scanType, setScanType] = useState("quick")
   const [timingProfile, setTimingProfile] = useState("normal")
   const [isScanning, setIsScanning] = useState(false)
@@ -84,18 +83,19 @@ export default function PortScannerDashboard() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // API 기본 URL
-  const API_BASE = "http://localhost:5001"
+  // API 기본 URL (asm.exe 연동으로 변경)
+  const ASM_API_BASE = "http://localhost:8080/api"
+  const FLASK_API_BASE = "http://localhost:5001"
 
-  // 초기 데이터 로드
+  // 초기 데이터 로드 (asm.exe에서)
   useEffect(() => {
     loadAssets()
   }, [])
 
-  // 자산 목록 로드
+  // 자산 목록 로드 (asm.exe에서)
   const loadAssets = async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/assets`)
+      const response = await fetch(`${ASM_API_BASE}/assets`)
       if (response.ok) {
         const data = await response.json()
         setAssets(data)
@@ -105,7 +105,7 @@ export default function PortScannerDashboard() {
     }
   }
 
-  // 포트 스캔 실행
+  // 포트 스캔 실행 (asm.exe 연동)
   const handleScan = async () => {
     if (!targetIp.trim()) {
       setError("대상 IP/도메인을 입력해주세요")
@@ -118,22 +118,20 @@ export default function PortScannerDashboard() {
     setScanResults([])
 
     try {
-      // 1. 포트 스캔 요청
-      const scanResponse = await fetch(`${API_BASE}/scan`, {
+      // asm.exe에 스캔 요청
+      const nmap_args = getNmapArguments()
+      const scanResponse = await fetch(`${ASM_API_BASE}/scan`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ip: targetIp,
-          ports: parsePortRange(),
-          scan_type: scanType,
+          target: targetIp,
+          arguments: nmap_args
         }),
       })
 
       if (!scanResponse.ok) {
         throw new Error(`스캔 요청 실패: ${scanResponse.status}`)
       }
-
-      const scanData = await scanResponse.json()
 
       // 진행률 시뮬레이션
       const progressInterval = setInterval(() => {
@@ -146,19 +144,40 @@ export default function PortScannerDashboard() {
         })
       }, 500)
 
-      // 결과 폴링 (실제 구현에서는 WebSocket 사용 권장)
+      // 결과 폴링 (asm.exe의 /api/assets에서 조회)
       setTimeout(async () => {
         try {
-          const resultsResponse = await fetch(`${API_BASE}/scan-results/${targetIp}`)
+          const resultsResponse = await fetch(`${ASM_API_BASE}/assets`)
           if (resultsResponse.ok) {
-            const results = await resultsResponse.json()
-            setScanResults(results)
-            setScanProgress(100)
+            const assets = await resultsResponse.json()
+            
+            // 타겟 IP에 해당하는 자산 찾기
+            const targetAsset = assets.find((asset: any) => 
+              asset.ip === targetIp || asset.hostname === targetIp
+            )
+
+            if (targetAsset && targetAsset.ports) {
+              // asm.exe 결과를 기존 형식으로 변환
+              const results: ScanResult[] = targetAsset.ports.map((port: any) => ({
+                ip: targetAsset.ip,
+                port: port.port,
+                status: port.state,
+                service: port.service || "Unknown",
+                version: port.version || "",
+                vulnerability: port.scripts && Object.keys(port.scripts).length > 0 ? "medium" : "low",
+                timestamp: targetAsset.last_scanned
+              }))
+
+              setScanResults(results)
+              setAssets(assets)
+            }
           }
+          setScanProgress(100)
         } catch (error) {
           console.error("결과 조회 실패:", error)
         }
         setIsScanning(false)
+        clearInterval(progressInterval)
       }, 3000)
     } catch (error) {
       setError(`스캔 실패: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
@@ -166,7 +185,21 @@ export default function PortScannerDashboard() {
     }
   }
 
-  // SSH 브루트포스 공격
+  // Nmap 인수 생성
+  const getNmapArguments = () => {
+    let args = "-sV"
+    if (scanType === "comprehensive") {
+      args = "-sV -O --script=\"vuln,http-enum,http-sql-injection\""
+    } else if (scanType === "stealth") {
+      args = "-sS -sV"
+    }
+    if (startPort && endPort) {
+      args += ` -p ${startPort}-${endPort}`
+    }
+    return args
+  }
+
+  // SSH 브루트포스 공격 (Flask 서버 사용)
   const handleSSHAttack = async () => {
     if (!targetIp.trim()) {
       setError("대상을 먼저 설정해주세요")
@@ -177,7 +210,7 @@ export default function PortScannerDashboard() {
     setError(null)
 
     try {
-      const response = await fetch(`${API_BASE}/attack/ssh`, {
+      const response = await fetch(`${FLASK_API_BASE}/attack/ssh`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -210,7 +243,7 @@ export default function PortScannerDashboard() {
     }
   }
 
-  // 웹 브루트포스 공격
+  // 웹 브루트포스 공격 (Flask 서버 사용)
   const handleWebAttack = async () => {
     if (!targetIp.trim()) {
       setError("대상을 먼저 설정해주세요")
@@ -221,7 +254,7 @@ export default function PortScannerDashboard() {
     setError(null)
 
     try {
-      const response = await fetch(`${API_BASE}/attack/web`, {
+      const response = await fetch(`${FLASK_API_BASE}/attack/web`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -253,7 +286,6 @@ export default function PortScannerDashboard() {
     }
   }
 
-  
   // 포트 범위 파싱
   const parsePortRange = (): number[] => {
     const s = parseInt(startPort, 10)
@@ -387,33 +419,30 @@ export default function PortScannerDashboard() {
                       시작 포트
                     </Label>
                     <Input
-  id="start-port"
-  placeholder="1"
-  value={startPort}
-  onChange={e => {
-    const val = e.target.value;
-    if (/^\d*$/.test(val)) setStartPort(val);
-  }}
-  className="bg-slate-800 border-slate-700 text-white"
-/>
-
-
+                      id="start-port"
+                      placeholder="1"
+                      value={startPort}
+                      onChange={e => {
+                        const val = e.target.value;
+                        if (/^\d*$/.test(val)) setStartPort(val);
+                      }}
+                      className="bg-slate-800 border-slate-700 text-white"
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="end-port" className="text-white">
                       끝 포트
                     </Label>
                     <Input
-  id="end-port"
-  placeholder="65535"
-  value={endPort}
-  onChange={e => {
-    const val = e.target.value;
-    if (/^\d*$/.test(val)) setEndPort(val);
-  }}
-  className="bg-slate-800 border-slate-700 text-white"
-/>
-
+                      id="end-port"
+                      placeholder="65535"
+                      value={endPort}
+                      onChange={e => {
+                        const val = e.target.value;
+                        if (/^\d*$/.test(val)) setEndPort(val);
+                      }}
+                      className="bg-slate-800 border-slate-700 text-white"
+                    />
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -497,7 +526,8 @@ export default function PortScannerDashboard() {
                       disabled={isScanning || isAttacking}
                       className="w-full"
                     >
-                      <Globe className="mr-2 h-4 w-4" />웹 브루트포스
+                      <Globe className="mr-2 h-4 w-4" />
+                      웹 브루트포스
                     </Button>
                   </div>
                 </div>
@@ -567,8 +597,8 @@ export default function PortScannerDashboard() {
                                 {result.status === "open" ? "열림" : "닫힘"}
                               </Badge>
                               <div
-  className={`w-3 h-3 rounded-full ${getVulnerabilityColor(result.status, result.vulnerability || "low")}`}
-/>
+                                className={`w-3 h-3 rounded-full ${getVulnerabilityColor(result.status, result.vulnerability || "low")}`}
+                              />
                             </div>
                           </div>
                         ))}
@@ -701,6 +731,7 @@ ${attackResults
       `[${new Date(result.timestamp).toLocaleString()}] ${result.type.toUpperCase()} 공격 ${result.target}: ${result.success ? "성공" : "실패"} - ${result.message}`,
   )
   .join("\n")}
+
 [${new Date().toLocaleString()}] 스캔 완료. ${scanResults.length}개 포트 스캔됨`}
                       className="min-h-[300px] bg-slate-800 border-slate-700 text-green-400 font-mono text-sm"
                     />
