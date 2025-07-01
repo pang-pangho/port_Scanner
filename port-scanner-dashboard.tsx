@@ -70,8 +70,9 @@ interface AssetInfo {
 export default function PortScannerDashboard() {
   // 상태 관리
   const [startPort, setStartPort] = useState("");
+  const [endPort, setEndPort] = useState("")
   const [targetIp, setTargetIp] = useState("")
-  const [portRange, setPortRange] = useState("8000-8080")
+  // const [portRange, setPortRange] = useState("1-100")
   const [scanType, setScanType] = useState("quick")
   const [timingProfile, setTimingProfile] = useState("normal")
   const [isScanning, setIsScanning] = useState(false)
@@ -123,7 +124,7 @@ export default function PortScannerDashboard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ip: targetIp,
-          ports: parsePortRange(portRange),
+          ports: parsePortRange(),
           scan_type: scanType,
         }),
       })
@@ -253,12 +254,11 @@ export default function PortScannerDashboard() {
   }
 
   // 포트 범위 파싱
-  const parsePortRange = (range: string): number[] => {
-    if (range.includes("-")) {
-      const [start, end] = range.split("-").map(Number)
-      return Array.from({ length: end - start + 1 }, (_, i) => start + i)
-    }
-    return range.split(",").map(Number)
+  const parsePortRange = (): number[] => {
+    const s = parseInt(startPort, 10)
+    const e = parseInt(endPort, 10)
+    if (isNaN(s) || isNaN(e) || s > e) return []
+    return Array.from({ length: e - s + 1 }, (_, i) => s + i)
   }
 
   // 취약도 색상 결정
@@ -390,16 +390,16 @@ export default function PortScannerDashboard() {
                       시작 포트
                     </Label>
                     <Input
-  type="text"
+  id="start-port"
+  placeholder="1"
   value={startPort}
   onChange={e => {
     const val = e.target.value;
     if (/^\d*$/.test(val)) setStartPort(val);
   }}
-className="bg-slate-800 border-slate-700 text-white placeholder:text-slate-500"
-
-  placeholder="시작 포트"
+  className="bg-slate-800 border-slate-700 text-white"
 />
+
 
                   </div>
                   <div className="space-y-2">
@@ -407,15 +407,16 @@ className="bg-slate-800 border-slate-700 text-white placeholder:text-slate-500"
                       끝 포트
                     </Label>
                     <Input
-                      id="end-port"
-                      placeholder="65535"
-                      value={portRange.split("-")[1] || "1000"}
-                      onChange={(e) => {
-                        const start = portRange.split("-")[0] || "1"
-                        setPortRange(`${start}-${e.target.value}`)
-                      }}
-                      className="bg-slate-800 border-slate-700 text-white placeholder:text-slate-500"
-                    />
+  id="end-port"
+  placeholder="65535"
+  value={endPort}
+  onChange={e => {
+    const val = e.target.value;
+    if (/^\d*$/.test(val)) setEndPort(val);
+  }}
+  className="bg-slate-800 border-slate-700 text-white"
+/>
+
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -689,7 +690,7 @@ className="bg-slate-800 border-slate-700 text-white placeholder:text-slate-500"
                       readOnly
                       value={`[${new Date().toLocaleString()}] 대상에서 포트 스캔 시작: ${targetIp || "미설정"}
 [${new Date().toLocaleString()}] 스캔 유형: ${scanType}
-[${new Date().toLocaleString()}] 포트 범위: ${portRange}
+[${new Date().toLocaleString()}] 포트 범위: ${startPort}-${endPort}
 [${new Date().toLocaleString()}] 타이밍 프로필: ${timingProfile}
 ${scanResults
   .map(
