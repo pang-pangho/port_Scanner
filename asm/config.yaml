@@ -1,0 +1,24 @@
+# ASM System Configuration (A-Team Attack Mode)
+
+api:
+  port: 8080
+
+database:
+  path: asm.db
+
+scanner:
+  nmap:
+    path: "C:/Program Files (x86)/Nmap/nmap.exe"
+    # A-Team의 공격적인 스캔 옵션
+    # -sV: 서비스 버전 탐지 (B조의 정보 노출 탐지)
+    # -O: OS 탐지 (root 권한 필요)
+    # --script "vuln,http-enum,http-sql-injection":
+    #   vuln: 알려진 CVE 취약점 스캔
+    #   http-enum: /admin 같은 흔한 웹 디렉터리 탐색 (B조의 인증 없는 엔드포인트 탐지)
+    #   http-sql-injection: 기본 SQL 인젝션 시도 (B조의 SQLi 탐지)
+    arguments: -sV -O --script "vuln,http-enum,http-sql-injection"
+
+# 시스템 시작 시 스캔할 B조의 서버 IP
+targets:
+  initial:
+    - <B조_서버_IP_주소>

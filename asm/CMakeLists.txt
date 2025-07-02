@@ -1,12 +1,25 @@
-﻿# CMakeList.txt: asm에 대한 CMake 프로젝트, 여기에 소스를 포함하고
-# 프로젝트 특정 논리를 정의합니다.
-#
+﻿cmake_minimum_required(VERSION 3.15)
+project(asm)
 
-# 이 프로젝트의 실행 파일에 소스를 추가합니다.
-add_executable (asm "asm.cpp" "asm.h")
+add_executable(asm "asm.cpp" "asm.h")
 
 if (CMAKE_VERSION VERSION_GREATER 3.12)
   set_property(TARGET asm PROPERTY CXX_STANDARD 20)
 endif()
 
-# TODO: 필요한 경우 테스트를 추가하고 대상을 설치합니다.
+find_package(Boost REQUIRED COMPONENTS process)
+find_package(crow CONFIG REQUIRED)
+find_package(yaml-cpp CONFIG REQUIRED)
+find_package(spdlog CONFIG REQUIRED)
+find_package(pugixml CONFIG REQUIRED)
+find_package(SQLite3 REQUIRED)
+
+target_link_libraries(asm
+  PRIVATE
+    Boost::process
+    crow
+    yaml-cpp
+    spdlog::spdlog
+    pugixml
+    SQLite::SQLite3
+)
