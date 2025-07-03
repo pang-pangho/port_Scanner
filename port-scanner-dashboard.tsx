@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Shield,
   Scan,
@@ -105,7 +105,7 @@ interface VulnerabilityInfo {
   published_date: string;
 }
 
-// OSV.dev API로 취약점 조회 (에코시스템은 필요에 따라 "Debian", "PyPI", "npm" 등 지정)
+// OSV.dev API로 취약점 조회
 async function fetchOsvVulns(
   service: string,
   version: string,
@@ -123,7 +123,7 @@ async function fetchOsvVulns(
     if (!response.ok) return [];
     const data = await response.json();
     return data.vulns || [];
-  } catch (e) {
+  } catch {
     return [];
   }
 }
@@ -144,28 +144,26 @@ export default function PortScannerDashboard() {
   const [vulnerabilities, setVulnerabilities] = useState<VulnerabilityInfo[]>(
     []
   );
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // API 기본 URL (프록시 주소 사용!)
-  const ASM_API_BASE = "http://localhost:8010/proxy/api";
-  const FLASK_API_BASE = "http://localhost:5001";
+  // *** 여기를 Flask 통합 서버로 교체 ***
+  const API_BASE = "http://localhost:8080/api";
 
   // 초기 데이터 로드
   useEffect(() => {
     loadAssets();
     loadVulnerabilities();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 자산 목록 로드
-  const loadAssets = async () => {
+  const loadAssets = useCallback(async () => {
     try {
-      const response = await fetch(`${ASM_API_BASE}/assets`);
+      const response = await fetch(`${API_BASE}/assets`);
       if (response.ok) {
         let data = await response.json();
         if (!Array.isArray(data)) data = [];
 
-        // 각 자산에 위험도 점수 계산
         const assetsWithRisk = data.map((asset: AssetInfo) => {
           const riskCounts = { critical: 0, high: 0, medium: 0, low: 0 };
 
@@ -195,15 +193,14 @@ export default function PortScannerDashboard() {
       } else {
         setAssets([]);
       }
-    } catch (error) {
-      console.error("자산 로드 실패:", error);
+    } catch (err) {
+      console.error("자산 로드 실패:", err);
       setAssets([]);
     }
-  };
+  }, [API_BASE]);
 
-  // 취약점 데이터 로드 (OSV.dev 적용 후에는 필요시 확장)
-  const loadVulnerabilities = async () => {
-    // 스캔 결과 기반으로 취약점 목록을 갱신
+  // 취약점 데이터 로드
+  const loadVulnerabilities = useCallback(() => {
     if (scanResults.length > 0) {
       const vulns: VulnerabilityInfo[] = [];
       scanResults.forEach((result) => {
@@ -213,34 +210,40 @@ export default function PortScannerDashboard() {
               cve: cveId,
               cvss_score: result.cvss_score || 0,
               severity: result.risk_level || "low",
-              description: "", // 상세 설명은 필요시 osvVulns에서 추출
+              description: "",
               service: result.service || "",
               port: result.port,
               ip: result.ip,
-              published_date: "", // osvVulns에서 datePublished 등 추출 가능
+              published_date: "",
             });
           });
         }
       });
       setVulnerabilities(vulns);
     }
+  }, [scanResults]);
+
+  // 스캔 타입 → Flask 서버 method 매핑 함수
+  const scanTypeToMethod = (type: string) => {
+    switch (type) {
+      case "quick":
+        return "nmap";
+      case "stealth":
+        return "syn";
+      case "tcp":
+        return "tcp";
+      case "ack":
+        return "ack";
+      case "udp":
+        return "udp";
+      case "comprehensive":
+        return "nmap";
+      default:
+        return "nmap";
+    }
   };
 
-  // Nmap 인수 생성
-  const getNmapArguments = () => {
-    let args = "-sV";
-    if (scanType === "comprehensive") {
-      args = '-sV -O --script="vuln,http-enum,http-sql-injection"';
-    } else if (scanType === "stealth") {
-      args = "-sS -sV";
-    }
-    if (startPort && endPort) {
-      args += ` -p ${startPort}-${endPort}`;
-    }
-    return args;
-  };
-
-  // 포트 스캔 실행 (OSV.dev API 적용)
+  // 포트 스캔 실행
   const handleScan = async () => {
     if (!targetIp.trim()) {
       setError("대상 IP/도메인을 입력해주세요");
@@ -254,13 +257,13 @@ export default function PortScannerDashboard() {
     setVulnerabilities([]);
 
     try {
-      const nmap_args = getNmapArguments();
-      const scanResponse = await fetch(`${ASM_API_BASE}/scan`, {
+      const scanResponse = await fetch(`${API_BASE}/scan`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           target: targetIp,
-          arguments: nmap_args,
+          ports: startPort && endPort ? `${startPort}-${endPort}` : "20-80",
+          method: scanTypeToMethod(scanType),
         }),
       });
 
@@ -280,30 +283,24 @@ export default function PortScannerDashboard() {
 
       setTimeout(async () => {
         try {
-          const resultsResponse = await fetch(`${ASM_API_BASE}/assets`);
+          const resultsResponse = await fetch(`${API_BASE}/assets`);
           if (resultsResponse.ok) {
-            let assets = await resultsResponse.json();
-            if (!Array.isArray(assets)) assets = [];
-            setAssets(assets);
+            let assetsResp = await resultsResponse.json();
+            if (!Array.isArray(assetsResp)) assetsResp = [];
+            setAssets(assetsResp);
 
-            const targetAsset = assets.find(
-              (asset: any) =>
+            const targetAsset = assetsResp.find(
+              (asset: AssetInfo) =>
                 asset.ip === targetIp || asset.hostname === targetIp
             );
-
             if (targetAsset && Array.isArray(targetAsset.ports)) {
-              // --- OSV.dev API를 활용한 동적 취약점 매칭 ---
               const results: ScanResult[] = await Promise.all(
-                targetAsset.ports.map(async (port: any) => {
+                targetAsset.ports.map(async (port) => {
                   let cveList: string[] = [];
                   let cvssScore = 0;
                   let riskLevel: "critical" | "high" | "medium" | "low" = "low";
                   let osvVulns: any[] = [];
-                  let osvSummary = "";
-
-                  // 서비스명, 버전이 둘 다 있을 때만 OSV API 호출
                   if (port.service && port.version) {
-                    // 에코시스템은 실제 서비스에 맞게 조정 필요 (예: "Debian", "PyPI", "npm" 등)
                     osvVulns = await fetchOsvVulns(
                       port.service,
                       port.version,
@@ -312,7 +309,6 @@ export default function PortScannerDashboard() {
                     cveList = osvVulns.map(
                       (v: any) => v.id || v.aliases?.[0] || ""
                     );
-                    // CVSS 점수 및 위험도 추출
                     if (
                       osvVulns.length > 0 &&
                       osvVulns[0].severity?.length > 0
@@ -327,7 +323,6 @@ export default function PortScannerDashboard() {
                         else if (cvssScore >= 4) riskLevel = "medium";
                         else riskLevel = "low";
                       }
-                      osvSummary = osvVulns[0].summary || "";
                     }
                   }
 
@@ -351,16 +346,16 @@ export default function PortScannerDashboard() {
               const vulns: VulnerabilityInfo[] = [];
               results.forEach((result, idx) => {
                 if (result.cve && result.cve.length > 0) {
-                  result.cve.forEach((cveId, cveIdx) => {
+                  result.cve.forEach((cveId) => {
                     vulns.push({
                       cve: cveId,
-                      cvss_score: results[idx].cvss_score || 0,
-                      severity: results[idx].risk_level || "low",
-                      description: "", // 상세 설명은 필요시 osvVulns에서 추출
-                      service: results[idx].service || "",
-                      port: results[idx].port,
-                      ip: results[idx].ip,
-                      published_date: "", // osvVulns에서 datePublished 등 추출 가능
+                      cvss_score: result.cvss_score || 0,
+                      severity: result.risk_level || "low",
+                      description: "",
+                      service: result.service || "",
+                      port: result.port,
+                      ip: result.ip,
+                      published_date: "",
                     });
                   });
                 }
@@ -374,18 +369,16 @@ export default function PortScannerDashboard() {
             setScanResults([]);
           }
           setScanProgress(100);
-        } catch (error) {
-          console.error("결과 조회 실패:", error);
+        } catch (err) {
+          console.error("결과 조회 실패:", err);
           setScanResults([]);
         }
         setIsScanning(false);
         clearInterval(progressInterval);
       }, 3000);
-    } catch (error) {
+    } catch (err) {
       setError(
-        `스캔 실패: ${
-          error instanceof Error ? error.message : "알 수 없는 오류"
-        }`
+        `스캔 실패: ${err instanceof Error ? err.message : "알 수 없는 오류"}`
       );
       setIsScanning(false);
     }
@@ -402,7 +395,7 @@ export default function PortScannerDashboard() {
     setError(null);
 
     try {
-      const response = await fetch(`${FLASK_API_BASE}/attack/ssh`, {
+      const response = await fetch(`${API_BASE}/attack/ssh`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -428,12 +421,11 @@ export default function PortScannerDashboard() {
           (result.success ? "SSH 로그인 성공" : "SSH 로그인 실패"),
         timestamp: new Date().toISOString(),
       };
-
       setAttackResults((prev) => [attackResult, ...prev]);
-    } catch (error) {
+    } catch (err) {
       setError(
         `SSH 공격 실패: ${
-          error instanceof Error ? error.message : "알 수 없는 오류"
+          err instanceof Error ? err.message : "알 수 없는 오류"
         }`
       );
     } finally {
@@ -452,7 +444,7 @@ export default function PortScannerDashboard() {
     setError(null);
 
     try {
-      const response = await fetch(`${FLASK_API_BASE}/attack/web`, {
+      const response = await fetch(`${API_BASE}/attack/web`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -479,10 +471,10 @@ export default function PortScannerDashboard() {
       };
 
       setAttackResults((prev) => [attackResult, ...prev]);
-    } catch (error) {
+    } catch (err) {
       setError(
         `웹 공격 실패: ${
-          error instanceof Error ? error.message : "알 수 없는 오류"
+          err instanceof Error ? err.message : "알 수 없는 오류"
         }`
       );
     } finally {
@@ -562,7 +554,6 @@ export default function PortScannerDashboard() {
       vulnerabilities: vulnerabilities,
       timestamp: new Date().toISOString(),
     };
-
     const blob = new Blob([JSON.stringify(report, null, 2)], {
       type: "application/json",
     });
@@ -581,7 +572,7 @@ export default function PortScannerDashboard() {
     }
 
     try {
-      const response = await fetch(`${ASM_API_BASE}/assets/${assetId}`, {
+      const response = await fetch(`${API_BASE}/assets/${assetId}`, {
         method: "DELETE",
       });
 
@@ -595,10 +586,10 @@ export default function PortScannerDashboard() {
       if (scanResults.some((result) => result.ip === assetIp)) {
         setScanResults([]);
       }
-    } catch (error) {
+    } catch (err) {
       setError(
         `자산 삭제 실패: ${
-          error instanceof Error ? error.message : "알 수 없는 오류"
+          err instanceof Error ? err.message : "알 수 없는 오류"
         }`
       );
     }
@@ -915,7 +906,6 @@ export default function PortScannerDashboard() {
                   로그
                 </TabsTrigger>
               </TabsList>
-
               <TabsContent value="results">
                 <Card className="bg-slate-900 border-slate-800">
                   <CardHeader>
@@ -1204,22 +1194,25 @@ export default function PortScannerDashboard() {
                                   asset.medium_count ||
                                   asset.low_count) && (
                                   <div className="flex space-x-2 mt-1">
-                                    {asset.critical_count > 0 && (
-                                      <Badge className="bg-red-600 text-white text-xs">
-                                        Critical: {asset.critical_count}
-                                      </Badge>
-                                    )}
-                                    {asset.high_count > 0 && (
-                                      <Badge className="bg-orange-600 text-white text-xs">
-                                        High: {asset.high_count}
-                                      </Badge>
-                                    )}
-                                    {asset.medium_count > 0 && (
-                                      <Badge className="bg-yellow-600 text-white text-xs">
-                                        Medium: {asset.medium_count}
-                                      </Badge>
-                                    )}
-                                    {asset.low_count > 0 && (
+                                    {asset.critical_count &&
+                                      asset.critical_count > 0 && (
+                                        <Badge className="bg-red-600 text-white text-xs">
+                                          Critical: {asset.critical_count}
+                                        </Badge>
+                                      )}
+                                    {asset.high_count &&
+                                      asset.high_count > 0 && (
+                                        <Badge className="bg-orange-600 text-white text-xs">
+                                          High: {asset.high_count}
+                                        </Badge>
+                                      )}
+                                    {asset.medium_count &&
+                                      asset.medium_count > 0 && (
+                                        <Badge className="bg-yellow-600 text-white text-xs">
+                                          Medium: {asset.medium_count}
+                                        </Badge>
+                                      )}
+                                    {asset.low_count && asset.low_count > 0 && (
                                       <Badge className="bg-green-600 text-white text-xs">
                                         Low: {asset.low_count}
                                       </Badge>
