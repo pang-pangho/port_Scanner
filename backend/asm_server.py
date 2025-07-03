@@ -9,6 +9,7 @@ from scapy.all import IP, TCP, UDP, ICMP, sr1
 
 app = Flask(__name__)
 CORS(app)
+
 DB_PATH = "asm.db"
 
 def init_db():
@@ -155,7 +156,7 @@ def udp_scan(target_ip, port, timeout=2):
 
 # --- API 엔드포인트 ---
 
-@app.route("/api/assets")
+@app.route("/api/assets", methods=["GET"])
 def get_assets():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -176,6 +177,16 @@ def get_assets():
         })
     conn.close()
     return jsonify(assets)
+
+@app.route("/api/assets/<int:asset_id>", methods=["DELETE", "OPTIONS"])
+def delete_asset(asset_id):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('DELETE FROM ports WHERE asset_id = ?', (asset_id,))
+    c.execute('DELETE FROM assets WHERE id = ?', (asset_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"message": "deleted"}), 200
 
 @app.route("/api/scan", methods=["POST"])
 def scan():
