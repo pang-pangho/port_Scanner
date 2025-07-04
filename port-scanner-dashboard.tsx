@@ -786,9 +786,11 @@ export default function PortScannerDashboard() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="bg-slate-800 border-slate-700">
-                      <SelectItem value="quick">빠른 스캔</SelectItem>
-                      <SelectItem value="comprehensive">포괄적 스캔</SelectItem>
-                      <SelectItem value="stealth">스텔스 스캔</SelectItem>
+                    <SelectItem value="nmap">Nmap 정밀 스캔</SelectItem>
+    <SelectItem value="tcp">TCP Connect 스캔</SelectItem>
+    <SelectItem value="syn">TCP SYN (스텔스)</SelectItem>
+    <SelectItem value="ack">TCP ACK (방화벽 탐지)</SelectItem>
+    <SelectItem value="udp">UDP 스캔</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
